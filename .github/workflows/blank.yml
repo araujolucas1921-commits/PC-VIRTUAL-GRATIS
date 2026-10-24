@@ -1,0 +1,66 @@
+
+name: PC Virtual Temporario
+
+on:
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+
+    steps:
+      - name: Instalar ambiente grafico
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xfce4 xfce4-goodies dbus-x11 \
+            tigervnc-standalone-server \
+            curl unzip
+
+      - name: Configurar VNC
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          mkdir -p ~/.vnc
+          printf '%s\n' "$VNC_PASSWORD" | \
+            vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+
+          printf '#!/bin/sh\nstartxfce4\n' > ~/.vnc/xstartup
+          chmod +x ~/.vnc/xstartup
+
+          vncserver :1 -localhost no \
+            -geometry 1280x720 -depth 24
+
+      - name: Configurar tunel seguro
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        run: |
+          curl -fsSL \
+            https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip \
+            -o ngrok.zip
+          unzip -o ngrok.zip
+          chmod +x ngrok
+
+          ./ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+          nohup ./ngrok tcp 5901 \
+            > ngrok.log 2>&1 &
+          
+          for i in $(seq 1 30); do
+            sleep 2
+            if grep -q 'url=tcp://' ngrok.log; then
+              break
+            fi
+          done
+
+          grep -E 'url=tcp://' ngrok.log || {
+            cat ngrok.log
+            exit 1
+          }
+
+      - name: Manter sessao ativa
+        run: |
+          echo "Desktop temporario iniciado."
+          sleep 20000
+concurrency: 
